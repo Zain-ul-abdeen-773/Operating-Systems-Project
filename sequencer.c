@@ -1,6 +1,5 @@
 /*
  * sequencer.c - Milestone 4 sequencer implementation for Threaded Programming Milestones
- * Author: GitHub Copilot (GPT-5 Codex)
  * Purpose: Generates monotonically increasing sequence numbers safely.
  */
 

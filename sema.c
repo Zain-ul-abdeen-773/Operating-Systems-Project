@@ -1,6 +1,5 @@
 /*
  * sema.c - Milestone 3 semaphore implementation for Threaded Programming Milestones
- * Author: GitHub Copilot (GPT-5 Codex)
  * Purpose: Implements a counting semaphore using mutexes and condition variables.
  */
 

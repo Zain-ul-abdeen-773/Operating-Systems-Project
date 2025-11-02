@@ -1,6 +1,5 @@
 /*
  * lock.c - Milestone 2 for Threaded Programming Milestones
- * Author: GitHub Copilot (GPT-5 Codex)
  * Purpose: Demonstrates mutex and condition variable synchronization.
  */
 

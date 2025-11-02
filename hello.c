@@ -1,6 +1,5 @@
 /*
  * hello.c - Milestone 1 for Threaded Programming Milestones
- * Author: GitHub Copilot (GPT-5 Codex)
  * Purpose: Demonstrates basic pthread_create and pthread_join usage.
  */
 

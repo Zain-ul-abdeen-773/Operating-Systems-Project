@@ -1,6 +1,5 @@
 /*
  * sequencer.h - Milestone 4 sequencer interface for Threaded Programming Milestones
- * Author: GitHub Copilot (GPT-5 Codex)
  */
 
 #ifndef SEQUENCER_H

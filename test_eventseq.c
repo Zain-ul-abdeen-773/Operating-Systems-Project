@@ -1,6 +1,5 @@
 /*
  * test_eventseq.c - Milestone 4 integration test for Threaded Programming Milestones
- * Author: GitHub Copilot (GPT-5 Codex)
  * Purpose: Demonstrates sequencer, event counter, and ring buffer components.
  */
 

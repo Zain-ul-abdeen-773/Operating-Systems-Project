@@ -1,6 +1,5 @@
 /*
  * sematest.c - Milestone 3 test driver for Threaded Programming Milestones
- * Author: GitHub Copilot (GPT-5 Codex)
  * Purpose: Demonstrates counting semaphore vs mutex concurrency limits.
  */
 

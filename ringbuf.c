@@ -1,6 +1,5 @@
 /*
  * ringbuf.c - Milestone 4 ring buffer implementation for Threaded Programming Milestones
- * Author: GitHub Copilot (GPT-5 Codex)
  * Purpose: Provides a blocking circular byte queue built with pthread primitives.
  */
 
