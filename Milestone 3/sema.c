@@ -1,12 +1,16 @@
 /*
  * sema.c - Milestone 3 semaphore implementation for Threaded Programming Milestones
  * Purpose: Implements a counting semaphore using mutexes and condition variables.
+ * Notes:
+ *  - wait() blocks while the count is 0; post() increments and signals one waiter.
+ *  - All operations are protected by the internal mutex and are thread-safe.
  */
 
 #include "sema.h"
 
 #include <errno.h>
 
+/* Initialize semaphore with non-negative initial value. */
 int sema_init(semaphore_t *s, int value)
 {
     if (s == NULL || value < 0) {
@@ -29,6 +33,7 @@ int sema_init(semaphore_t *s, int value)
     return 0;
 }
 
+/* Destroy semaphore resources. */
 int sema_destroy(semaphore_t *s)
 {
     if (s == NULL) {
@@ -48,6 +53,7 @@ int sema_destroy(semaphore_t *s)
     return 0;
 }
 
+/* Acquire one unit; block if none are available. */
 int sema_wait(semaphore_t *s)
 {
     if (s == NULL) {
@@ -77,6 +83,7 @@ int sema_wait(semaphore_t *s)
     return 0;
 }
 
+/* Release one unit and wake a single waiter. */
 int sema_post(semaphore_t *s)
 {
     if (s == NULL) {

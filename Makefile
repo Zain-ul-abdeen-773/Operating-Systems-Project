@@ -1,27 +1,33 @@
 CC = gcc
 CFLAGS = -Wall -Wextra -pedantic -std=c99 -g
+CPPFLAGS = -I"Milestone 1" -I"Milestone 2" -I"Milestone 3" -I"Milestone 4" -I"Milestone 5"
 LDFLAGS = -pthread
+
+# Directories (escaped spaces for make)
+M1 := Milestone\ 1
+M2 := Milestone\ 2
+M3 := Milestone\ 3
+M4 := Milestone\ 4
+M5 := Milestone\ 5
+
 PROGRAMS = hello lock sematest test_eventseq randprod
 
 all: $(PROGRAMS)
 
-hello: hello.c
-	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
+hello: $(M1)/hello.c
+	$(CC) $(CFLAGS) $(CPPFLAGS) -o $@ "$(M1)/hello.c" $(LDFLAGS)
 
-lock: lock.c
-	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
+lock: $(M2)/lock.c
+	$(CC) $(CFLAGS) $(CPPFLAGS) -o $@ "$(M2)/lock.c" $(LDFLAGS)
 
-sema.o: sema.c sema.h
-	$(CC) $(CFLAGS) -c sema.c
+sematest: $(M3)/sematest.c $(M3)/sema.c $(M3)/sema.h
+	$(CC) $(CFLAGS) $(CPPFLAGS) -o $@ "$(M3)/sematest.c" "$(M3)/sema.c" $(LDFLAGS)
 
-sematest: sematest.c sema.o
-	$(CC) $(CFLAGS) -o $@ sematest.c sema.o $(LDFLAGS)
+test_eventseq: $(M4)/test_eventseq.c $(M4)/sequencer.c $(M4)/eventcnt.c $(M4)/ringbuf.c $(M4)/sequencer.h $(M4)/eventcnt.h $(M4)/ringbuf.h
+	$(CC) $(CFLAGS) $(CPPFLAGS) -o $@ "$(M4)/test_eventseq.c" "$(M4)/sequencer.c" "$(M4)/eventcnt.c" "$(M4)/ringbuf.c" $(LDFLAGS)
 
-test_eventseq: test_eventseq.c sequencer.c eventcnt.c ringbuf.c
-	$(CC) $(CFLAGS) -o $@ test_eventseq.c sequencer.c eventcnt.c ringbuf.c $(LDFLAGS)
-
-randprod: randprod.c sequencer.c eventcnt.c ringbuf.c
-	$(CC) $(CFLAGS) -o $@ randprod.c sequencer.c eventcnt.c ringbuf.c $(LDFLAGS)
+randprod: $(M5)/randprod.c $(M4)/sequencer.c $(M4)/eventcnt.c $(M4)/ringbuf.c $(M4)/sequencer.h $(M4)/eventcnt.h $(M4)/ringbuf.h
+	$(CC) $(CFLAGS) $(CPPFLAGS) -o $@ "$(M5)/randprod.c" "$(M4)/sequencer.c" "$(M4)/eventcnt.c" "$(M4)/ringbuf.c" $(LDFLAGS)
 
 clean:
 	rm -f $(PROGRAMS) *.o

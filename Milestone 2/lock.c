@@ -1,6 +1,6 @@
 /*
  * lock.c - Milestone 2 for Threaded Programming Milestones
- * Purpose: Demonstrates mutex and condition variable synchronization.
+ * Purpose: Demonstrates mutex + condition variable handoff from parent to child.
  */
 
 #include <pthread.h>
@@ -10,6 +10,7 @@
 
 #define BUFFER_SIZE 256
 
+/* Shared data protected by mutex and coordinated via condition variable. */
 struct shared_state {
     char buffer[BUFFER_SIZE];
     int buffer_ready;
@@ -54,7 +55,8 @@ int main(void)
         pthread_mutex_unlock(&state.mutex);
         pthread_cond_broadcast(&state.cond);
     } else {
-        pthread_mutex_lock(&state.mutex);
+    /* Signal the child that input is available. */
+    pthread_mutex_lock(&state.mutex);
         state.buffer_ready = 1;
         pthread_mutex_unlock(&state.mutex);
         pthread_cond_signal(&state.cond);
@@ -78,6 +80,7 @@ int main(void)
     return 0;
 }
 
+/* Child waits until the parent indicates the buffer is ready. */
 static void *child_routine(void *arg)
 {
     struct shared_state *state = (struct shared_state *)arg;
@@ -89,7 +92,7 @@ static void *child_routine(void *arg)
     }
 
     while (state->buffer_ready == 0) {
-            /* Guarded wait ensures the child observes a consistent buffer state without races. */
+        /* Guarded wait to handle spurious wakeups and race-free checks. */
         status = pthread_cond_wait(&state->cond, &state->mutex);
         if (status != 0) {
             fprintf(stderr, "Child failed to wait on condition: %d\n", status);

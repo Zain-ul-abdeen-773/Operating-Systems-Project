@@ -1,7 +1,7 @@
 /*
  * eventcnt.c - Milestone 4 event counter implementation for Threaded Programming Milestones
- * Author: GitHub Copilot (GPT-5 Codex)
- * Purpose: Tracks monotonically increasing event counts with blocking awaits.
+ * Purpose: Tracks a monotonically increasing counter and allows threads to
+ *          block until the counter reaches a target value.
  */
 
 #include "eventcnt.h"
@@ -9,6 +9,7 @@
 #include <errno.h>
 #include <stdio.h>
 
+/* Initialize counter to 'start' and set up mutex/cond. */
 int eventcnt_init(eventcnt_t *e, uint64_t start)
 {
     if (e == NULL) {
@@ -31,6 +32,7 @@ int eventcnt_init(eventcnt_t *e, uint64_t start)
     return 0;
 }
 
+/* Destroy resources; safe no-op on NULL. */
 void eventcnt_destroy(eventcnt_t *e)
 {
     if (e == NULL) {
@@ -48,6 +50,7 @@ void eventcnt_destroy(eventcnt_t *e)
     }
 }
 
+/* Read the current value under the mutex. */
 uint64_t eventcnt_read(eventcnt_t *e)
 {
     if (e == NULL) {
@@ -67,6 +70,10 @@ uint64_t eventcnt_read(eventcnt_t *e)
     return value;
 }
 
+/*
+ * Increase the counter by 'delta' and wake any waiters.
+ * Broadcast is used because multiple threads may be awaiting different targets.
+ */
 void eventcnt_advance(eventcnt_t *e, uint64_t delta)
 {
     if (e == NULL) {
@@ -90,6 +97,10 @@ void eventcnt_advance(eventcnt_t *e, uint64_t delta)
     }
 }
 
+/*
+ * Block the caller until e->count >= target. A 'while' loop protects against
+ * spurious wakeups and ensures the predicate is re-checked under the mutex.
+ */
 void eventcnt_await(eventcnt_t *e, uint64_t target)
 {
     if (e == NULL) {

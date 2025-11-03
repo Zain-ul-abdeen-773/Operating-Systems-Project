@@ -10,11 +10,13 @@
 
 #include <errno.h>
 #include <inttypes.h>
+#include <time.h>
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <getopt.h>
 
 #define HISTORY_INITIAL_CAPACITY 32
 
@@ -41,6 +43,17 @@ static int append_history(shared_state_t *state, uint8_t value);
 
 static void *producer_thread(void *arg);
 static void *consumer_thread(void *arg);
+
+/* Portable microsecond sleep using nanosleep (handles EINTR). */
+static void sleep_us(unsigned int usec)
+{
+    struct timespec ts;
+    ts.tv_sec = usec / 1000000u;
+    ts.tv_nsec = (long)(usec % 1000000u) * 1000L;
+    while (nanosleep(&ts, &ts) == -1 && errno == EINTR) {
+        /* retry */
+    }
+}
 
 static void print_usage(const char *progname)
 {
@@ -362,7 +375,7 @@ static void *producer_thread(void *arg)
         int status = read_random_byte(&value);
         if (status != 0) {
             fprintf(stderr, "[Producer] read_random_byte failed: %d\n", status);
-            usleep(100000);
+            sleep_us(100000);
             continue;
         }
 

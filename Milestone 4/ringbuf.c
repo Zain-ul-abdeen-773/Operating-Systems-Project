@@ -1,6 +1,10 @@
 /*
  * ringbuf.c - Milestone 4 ring buffer implementation for Threaded Programming Milestones
- * Purpose: Provides a blocking circular byte queue built with pthread primitives.
+ * Purpose: Blocking circular byte queue built with pthread mutex/cond vars.
+ * Notes:
+ *  - rb_put blocks when the buffer is full until space is available.
+ *  - rb_get blocks when the buffer is empty until data is available.
+ *  - rb_close wakes waiters and causes rb_get to return with ECANCELED if empty.
  */
 
 #include "ringbuf.h"
@@ -12,6 +16,7 @@
 #include <string.h>
 #include <unistd.h>
 
+/* Initialize an empty ring buffer with 'capacity' slots. */
 int rb_init(ringbuf_t *rb, size_t capacity)
 {
     if (rb == NULL || capacity == 0) {
@@ -49,6 +54,7 @@ int rb_init(ringbuf_t *rb, size_t capacity)
     return 0;
 }
 
+/* Destroy condition variables and mutex; free storage. */
 void rb_destroy(ringbuf_t *rb)
 {
     if (rb == NULL) {
@@ -75,6 +81,7 @@ void rb_destroy(ringbuf_t *rb)
     rb->capacity = 0;
 }
 
+/* Enqueue a byte, blocking while full. No-op if already closed. */
 void rb_put(ringbuf_t *rb, uint8_t value)
 {
     if (rb == NULL) {
@@ -87,6 +94,7 @@ void rb_put(ringbuf_t *rb, uint8_t value)
         return;
     }
 
+    /* Wait while full; loop guards against spurious wakeups. */
     while (rb->count == rb->capacity && rb->closed == 0) {
         status = pthread_cond_wait(&rb->not_full, &rb->lock);
         if (status != 0) {
@@ -102,6 +110,7 @@ void rb_put(ringbuf_t *rb, uint8_t value)
         return;
     }
 
+    /* Write one byte at tail and advance indices atomically under lock. */
     rb->data[rb->tail] = value;
     rb->tail = (rb->tail + 1) % rb->capacity;
     rb->count++;
@@ -117,6 +126,7 @@ void rb_put(ringbuf_t *rb, uint8_t value)
     }
 }
 
+/* Dequeue a byte, blocking while empty. Returns 0 and sets errno on error. */
 uint8_t rb_get(ringbuf_t *rb)
 {
     if (rb == NULL) {
@@ -131,6 +141,7 @@ uint8_t rb_get(ringbuf_t *rb)
         return 0;
     }
 
+    /* Wait while empty; loop guards against spurious wakeups. */
     while (rb->count == 0 && rb->closed == 0) {
         status = pthread_cond_wait(&rb->not_empty, &rb->lock);
         if (status != 0) {
@@ -147,6 +158,7 @@ uint8_t rb_get(ringbuf_t *rb)
         return 0;
     }
 
+    /* Read one byte at head and advance indices atomically under lock. */
     uint8_t value = rb->data[rb->head];
     rb->head = (rb->head + 1) % rb->capacity;
     rb->count--;
@@ -164,6 +176,7 @@ uint8_t rb_get(ringbuf_t *rb)
     return value;
 }
 
+/* Mark buffer as closed and wake all waiters (both producers and consumers). */
 void rb_close(ringbuf_t *rb)
 {
     if (rb == NULL) {
@@ -194,6 +207,7 @@ void rb_close(ringbuf_t *rb)
     }
 }
 
+/* Thread-safe check of the closed flag. Returns 1 if closed or on error. */
 int rb_is_closed(ringbuf_t *rb)
 {
     if (rb == NULL) {
@@ -216,6 +230,7 @@ int rb_is_closed(ringbuf_t *rb)
     return value;
 }
 
+/* Read one byte from /dev/random into 'value' (may block for entropy). */
 int read_random_byte(uint8_t *value)
 {
     if (value == NULL) {

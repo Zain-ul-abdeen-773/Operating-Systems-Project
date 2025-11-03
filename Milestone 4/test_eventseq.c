@@ -1,6 +1,7 @@
 /*
  * test_eventseq.c - Milestone 4 integration test for Threaded Programming Milestones
- * Purpose: Demonstrates sequencer, event counter, and ring buffer components.
+ * Purpose: Exercises sequencer (tickets), event counter (await target), and
+ *          ring buffer (producer/consumer) components together.
  */
 
 #include "eventcnt.h"
@@ -9,6 +10,7 @@
 
 #include <errno.h>
 #include <inttypes.h>
+#include <time.h>
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -25,12 +27,24 @@ struct rb_thread_args {
     ringbuf_t *buffer;
 };
 
+/* Small demo runners for each component. */
 static void run_sequencer_demo(void);
 static void run_event_counter_demo(void);
 static void run_ring_buffer_demo(void);
 static void *event_advancer(void *arg);
 static void *rb_producer(void *arg);
 static void *rb_consumer(void *arg);
+
+/* Portable microsecond sleep using nanosleep (handles EINTR). */
+static void sleep_us(unsigned int usec)
+{
+    struct timespec ts;
+    ts.tv_sec = usec / 1000000u;
+    ts.tv_nsec = (long)(usec % 1000000u) * 1000L;
+    while (nanosleep(&ts, &ts) == -1 && errno == EINTR) {
+        /* retry with remaining time */
+    }
+}
 
 int main(void)
 {
@@ -40,6 +54,7 @@ int main(void)
     return 0;
 }
 
+/* Print a few sequential tickets starting from 1000. */
 static void run_sequencer_demo(void)
 {
     printf("=== Sequencer Demo ===\n");
@@ -58,6 +73,7 @@ static void run_sequencer_demo(void)
     sequencer_destroy(&seq);
 }
 
+/* Spawn a worker that advances the counter until main observes EVENT_STEPS. */
 static void run_event_counter_demo(void)
 {
     printf("\n=== Event Counter Demo ===\n");
@@ -88,6 +104,10 @@ static void run_event_counter_demo(void)
     eventcnt_destroy(&counter);
 }
 
+/*
+ * Start a producer pushing integers 1..RB_TEST_ITEMS and a consumer that pulls
+ * them out; close the buffer to unblock the consumer at the end.
+ */
 static void run_ring_buffer_demo(void)
 {
     printf("\n=== Ring Buffer Demo ===\n");
@@ -132,6 +152,7 @@ static void run_ring_buffer_demo(void)
     rb_destroy(&buffer);
 }
 
+/* Worker that advances the event counter once per second. */
 static void *event_advancer(void *arg)
 {
     struct event_thread_args *args = (struct event_thread_args *)arg;
@@ -143,17 +164,19 @@ static void *event_advancer(void *arg)
     return NULL;
 }
 
+/* Producer enqueues a few test values with a small delay to show backpressure. */
 static void *rb_producer(void *arg)
 {
     struct rb_thread_args *args = (struct rb_thread_args *)arg;
     for (int i = 0; i < RB_TEST_ITEMS; ++i) {
-        rb_put(args->buffer, (uint8_t)(i + 1));
-        printf("Producer queued value %d\n", i + 1);
-        usleep(200000);
+    rb_put(args->buffer, (uint8_t)(i + 1));
+    printf("Producer queued value %d\n", i + 1);
+    sleep_us(200000);
     }
     return NULL;
 }
 
+/* Consumer dequeues values until RB_TEST_ITEMS are received or buffer is closed. */
 static void *rb_consumer(void *arg)
 {
     struct rb_thread_args *args = (struct rb_thread_args *)arg;
@@ -163,9 +186,9 @@ static void *rb_consumer(void *arg)
         if (errno == ECANCELED && rb_is_closed(args->buffer)) {
             break;
         }
-        printf("Consumer processed value %d\n", value);
-        ++received;
-        usleep(250000);
+    printf("Consumer processed value %d\n", value);
+    ++received;
+    sleep_us(250000);
     }
     return NULL;
 }

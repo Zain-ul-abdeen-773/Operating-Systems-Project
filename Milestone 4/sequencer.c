@@ -1,6 +1,9 @@
 /*
  * sequencer.c - Milestone 4 sequencer implementation for Threaded Programming Milestones
- * Purpose: Generates monotonically increasing sequence numbers safely.
+ * Purpose: Thread-safe generator of monotonically increasing tickets.
+ * Notes:
+ *  - All API calls are safe to invoke concurrently on the same instance.
+ *  - Tickets increase by 1 starting from the provided start value.
  */
 
 #include "sequencer.h"
@@ -8,6 +11,7 @@
 #include <errno.h>
 #include <stdio.h>
 
+/* Initialize the sequencer with the next ticket set to 'start'. */
 int sequencer_init(sequencer_t *s, uint64_t start)
 {
     if (s == NULL) {
@@ -24,6 +28,7 @@ int sequencer_init(sequencer_t *s, uint64_t start)
     return 0;
 }
 
+/* Destroy internal resources; does not free the struct itself. */
 void sequencer_destroy(sequencer_t *s)
 {
     if (s == NULL) {
@@ -36,6 +41,10 @@ void sequencer_destroy(sequencer_t *s)
     }
 }
 
+/*
+ * Atomically fetch-and-increment the ticket value.
+ * Returns 0 on error (e.g., NULL input or lock failure).
+ */
 uint64_t sequencer_ticket(sequencer_t *s)
 {
     if (s == NULL) {
@@ -48,6 +57,7 @@ uint64_t sequencer_ticket(sequencer_t *s)
         return 0;
     }
 
+    /* Fetch then increment while holding the mutex. */
     uint64_t ticket = s->next_ticket;
     s->next_ticket++;
 
