@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <ctype.h>
 
 #define BUFFER_SIZE 256
 
@@ -49,17 +50,44 @@ int main(void)
 
     printf("Parent: Enter a line to share with the child thread:\n");
     if (fgets(state.buffer, BUFFER_SIZE, stdin) == NULL) {
-        fprintf(stderr, "Failed to read input.\n");
+        /* EOF or read error: treat as no input. */
+        fprintf(stderr, "No input received (EOF or error).\n");
         pthread_mutex_lock(&state.mutex);
-        state.buffer_ready = -1;
+        state.buffer_ready = -1; /* sentinel for no usable data */
         pthread_mutex_unlock(&state.mutex);
         pthread_cond_broadcast(&state.cond);
     } else {
-    /* Signal the child that input is available. */
-    pthread_mutex_lock(&state.mutex);
-        state.buffer_ready = 1;
-        pthread_mutex_unlock(&state.mutex);
-        pthread_cond_signal(&state.cond);
+        /* Strip trailing newline. */
+        size_t raw_len = strcspn(state.buffer, "\n");
+        state.buffer[raw_len] = '\0';
+        /* Trim leading/trailing whitespace to detect empty logical input. */
+        char *start = state.buffer;
+        while (*start && isspace((unsigned char)*start)) {
+            start++;
+        }
+        char *end = start + strlen(start);
+        while (end > start && isspace((unsigned char)*(end - 1))) {
+            *(--end) = '\0';
+
+        }
+        if (*start == '\0') {
+            /* User pressed Enter or entered only whitespace: treat as no input. */
+            fprintf(stderr, "Blank input detected. Nothing to share with child.\n");
+            pthread_mutex_lock(&state.mutex);
+            state.buffer_ready = -1; /* child will just exit */
+            pthread_mutex_unlock(&state.mutex);
+            pthread_cond_broadcast(&state.cond);
+        } else {
+            /* If trimming moved the start pointer, shift content to beginning. */
+            if (start != state.buffer) {
+                memmove(state.buffer, start, strlen(start) + 1);
+            }
+            /* Signal the child that input is available. */
+            pthread_mutex_lock(&state.mutex);
+            state.buffer_ready = 1;
+            pthread_mutex_unlock(&state.mutex);
+            pthread_cond_signal(&state.cond);
+        }
     }
 
     status = pthread_join(child_thread, NULL);
@@ -70,7 +98,7 @@ int main(void)
         return EXIT_FAILURE;
     }
 
-    printf("Parent: Press Enter to exit.\n");
+    printf("\nParent: Press Enter to exit.\n");
     int ch = getchar();
     (void)ch;
 
