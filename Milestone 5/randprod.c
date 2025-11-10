@@ -1,6 +1,28 @@
 /*
- * randprod.c - Milestone 5 integration for Threaded Programming Milestones
- * Purpose: Integrates sequencer, event counter, and ring buffer into a producer/consumer tool.
+ * randprod.c — Milestone 5: 8-bit Random Number Generator
+ *
+ * Goal: Solve the Producer/Consumer problem for a random number generator using
+ *        Sequencers and Event Counters.
+ *
+ * Mapping to the assignment steps:
+ *  1) Implement producer() and consumer() functions
+ *     - See producer_thread() and consumer_thread() below.
+ *  2) Ensure producer does not overflow and consumer does not underflow
+ *     - We use a blocking ring buffer (rb_put / rb_get) that naturally
+ *       blocks on full/empty conditions and prevents overflow/underflow.
+ *  3) Use Sequencers and Event Counters for synchronization
+ *     - Producer calls sequencer_ticket() per item and advances produced_counter.
+ *       Consumer waits with eventcnt_await(produced, next_ticket+1) before rb_get
+ *       and advances consumed_counter after processing.
+ *  4) Create a test program that spawns producer and consumer threads concurrently
+ *     - main() creates both threads and joins them on exit.
+ *  5) Add command-line parameters for buffer size and fill level
+ *     - Flags: -b <size> and -f <fill> (prefill is clamped to capacity).
+ *  6) Add a loop to read user input for printing integers from the buffer
+ *     - Interactive loop supports: "print N" to print N consumed integers.
+ *  7) Implement an exit command to clean up resources and exit the program
+ *     - Type "exit" or send EOF to stop; we wake threads, join, and free resources.
+
  */
 
 #include "eventcnt.h"
@@ -57,6 +79,7 @@ static void sleep_us(unsigned int usec)
 static void print_usage(const char *progname)
 {
     fprintf(stderr, "Usage: %s [-b buffer_size] [-f initial_fill]\n", progname);
+    fprintf(stderr, "Commands: print N | exit\n");
 }
 
 int main(int argc, char **argv)
@@ -68,8 +91,9 @@ int main(int argc, char **argv)
     while ((opt = getopt(argc, argv, "b:f:")) != -1) {
         switch (opt) {
         case 'b': {
-            long long value = atoll(optarg);
-            if (value <= 0) {
+            char *end = NULL;
+            unsigned long long value = strtoull(optarg, &end, 10);
+            if (end == optarg || *end != '\0' || value == 0) {
                 fprintf(stderr, "Buffer size must be positive.\n");
                 return EXIT_FAILURE;
             }
@@ -77,8 +101,15 @@ int main(int argc, char **argv)
             break;
         }
         case 'f': {
-            long long value = atoll(optarg);
-            if (value < 0) {
+            char *end = NULL;
+            unsigned long long value = strtoull(optarg, &end, 10);
+            /* treat non-numeric as error and negatives as invalid */
+            if (end == optarg || *end != '\0') {
+                fprintf(stderr, "Initial fill must be an integer.\n");
+                return EXIT_FAILURE;
+            }
+            /* strtoull can't represent negative; just check overflow to size_t */
+            if (value > (unsigned long long)SIZE_MAX) {
                 fprintf(stderr, "Initial fill must be non-negative.\n");
                 return EXIT_FAILURE;
             }
@@ -150,7 +181,7 @@ int main(int argc, char **argv)
             }
 
             while (print_cursor < target && print_cursor < state.history_size) {
-                printf("[History] index=%zu value=%u\n", print_cursor, state.history[print_cursor]);
+                printf("[History] index=%zu value=%u\\n", print_cursor, state.history[print_cursor]);
                 ++print_cursor;
             }
 
@@ -417,8 +448,8 @@ static void *consumer_thread(void *arg)
         }
 
         eventcnt_advance(&state->consumed_counter, 1);
-
-        printf("[Consumer] ticket=%" PRIu64 " value=%u (total=%zu)\n", next_ticket, value, state->history_size);
+    printf("[Consumer] ticket=%" PRIu64 " value=%u (total=%zu)\n",
+           next_ticket, value, state->history_size);
         ++next_ticket;
     }
 
