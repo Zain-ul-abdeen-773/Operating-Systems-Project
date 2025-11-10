@@ -8,7 +8,7 @@
  *  5. eventcnt_t with read(), advance(), await()
  *  6. Sequencer + Event Counter synchronization
  *  7. Producer/Consumer via pthreads (dispatch_async alternative)
- *  8. Command-line args: -b (buffer size), -f (initial fill)
+ *  8. Command-line args: -b (buffer size), -f (initial fill) ,p (no of lines)
  *  9. Interactive loop: print N | stats | exit
  * 10. Clean exit with resource cleanup
  */
@@ -306,7 +306,7 @@ int main(int argc, char **argv) {
                 eventcnt_await(&st.consumed_counter, target);
                 pthread_mutex_lock(&st.history_lock);
                 while (print_cursor < target && print_cursor < st.history_size)
-                    printf("[%zu] %u\n", print_cursor, st.history[print_cursor++]);
+                    printf("Consumer Received [%zu] %u\n", print_cursor, st.history[print_cursor++]);
                 pthread_mutex_unlock(&st.history_lock);
                 continue;
             }

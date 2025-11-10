@@ -1,6 +1,5 @@
 /*
  * randprod.c - Milestone 5 integration for Threaded Programming Milestones
- * Author: GitHub Copilot (GPT-5 Codex)
  * Purpose: Integrates sequencer, event counter, and ring buffer into a producer/consumer tool.
  */
 
