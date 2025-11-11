@@ -41,22 +41,27 @@
 
 #define HISTORY_INITIAL_CAPACITY 32
 
+/* Shared state structure containing all synchronization primitives and data
+ * shared between producer and consumer threads.
+ */
 struct shared_state {
-    ringbuf_t buffer;
-    sequencer_t sequencer;
-    eventcnt_t produced_counter;
-    eventcnt_t consumed_counter;
-    pthread_mutex_t history_lock;
-    uint8_t *history;
-    size_t history_size;
-    size_t history_capacity;
-    pthread_mutex_t state_lock;
-    int stop_requested;
+    ringbuf_t buffer;                    /* Ring buffer for values (blocking queue) */
+    sequencer_t sequencer;               /* Monotonic ticket generator */
+    eventcnt_t produced_counter;         /* Tracks number of items produced */
+    eventcnt_t consumed_counter;         /* Tracks number of items consumed */
+    pthread_mutex_t history_lock;        /* Protects history array */
+    uint8_t *history;                    /* Array of consumed values */
+    size_t history_size;                 /* Current number of items in history */
+    size_t history_capacity;             /* Allocated capacity of history */
+    pthread_mutex_t state_lock;          /* Protects stop_requested flag */
+    int stop_requested;                  /* Signal for threads to stop */
+    int verbose;                         /* Flag to control producer/consumer output */
 };
 
 typedef struct shared_state shared_state_t;
 
-static int shared_state_init(shared_state_t *state, size_t buffer_size, size_t initial_fill);
+/* Function prototypes */
+static int shared_state_init(shared_state_t *state, size_t buffer_size, size_t initial_fill, int verbose);
 static void shared_state_destroy(shared_state_t *state);
 static void request_stop(shared_state_t *state);
 static int should_stop(shared_state_t *state);
@@ -78,7 +83,8 @@ static void sleep_us(unsigned int usec)
 
 static void print_usage(const char *progname)
 {
-    fprintf(stderr, "Usage: %s [-b buffer_size] [-f initial_fill]\n", progname);
+    fprintf(stderr, "Usage: %s [-b buffer_size] [-f initial_fill] [-v]\n", progname);
+    fprintf(stderr, "  -v  Verbose: print producer/consumer operations\n");
     fprintf(stderr, "Commands: print N | exit\n");
 }
 
@@ -86,9 +92,10 @@ int main(int argc, char **argv)
 {
     size_t buffer_size = 10;
     size_t initial_fill = 0;
+    int verbose = 0;  /* By default, suppress producer/consumer output */
 
     int opt;
-    while ((opt = getopt(argc, argv, "b:f:")) != -1) {
+    while ((opt = getopt(argc, argv, "b:f:v")) != -1) {
         switch (opt) {
         case 'b': {
             char *end = NULL;
@@ -116,6 +123,9 @@ int main(int argc, char **argv)
             initial_fill = (size_t)value;
             break;
         }
+        case 'v':
+            verbose = 1;  /* Enable verbose output for producer/consumer */
+            break;
         default:
             print_usage(argv[0]);
             return EXIT_FAILURE;
@@ -123,7 +133,7 @@ int main(int argc, char **argv)
     }
 
     shared_state_t state;
-    if (shared_state_init(&state, buffer_size, initial_fill) != 0) {
+    if (shared_state_init(&state, buffer_size, initial_fill, verbose) != 0) {
         fprintf(stderr, "Failed to initialize shared state.\n");
         return EXIT_FAILURE;
     }
@@ -147,23 +157,28 @@ int main(int argc, char **argv)
         return EXIT_FAILURE;
     }
 
-    size_t print_cursor = 0;
+    /* Interactive command loop: read user commands to print history or exit */
+    size_t print_cursor = 0;  /* Tracks how many values have been printed so far */
     char line[256];
 
     printf("Commands: print N | exit\n");
     while (1) {
         printf("> ");
+        fflush(stdout);  /* Ensure prompt appears immediately */
+        
         if (fgets(line, sizeof(line), stdin) == NULL) {
             printf("EOF detected. Exiting.\n");
             request_stop(&state);
             break;
         }
 
+        /* Handle exit command */
         if (strncmp(line, "exit", 4) == 0) {
             request_stop(&state);
             break;
         }
 
+        /* Handle print command: print N consumed values from history */
         size_t requested = 0;
         if (sscanf(line, "print %zu", &requested) == 1) {
             if (requested == 0) {
@@ -171,9 +186,13 @@ int main(int argc, char **argv)
                 continue;
             }
 
+            /* Calculate target number of consumed items needed */
             size_t target = print_cursor + requested;
+            
+            /* Wait until at least 'target' items have been consumed */
             eventcnt_await(&state.consumed_counter, target);
 
+            /* Lock history and print the requested values */
             int lock_status = pthread_mutex_lock(&state.history_lock);
             if (lock_status != 0) {
                 fprintf(stderr, "Failed to lock history: %d\n", lock_status);
@@ -181,7 +200,7 @@ int main(int argc, char **argv)
             }
 
             while (print_cursor < target && print_cursor < state.history_size) {
-                printf("[History] index=%zu value=%u\\n", print_cursor, state.history[print_cursor]);
+                printf("[History] index=%zu value=%u\n", print_cursor, state.history[print_cursor]);
                 ++print_cursor;
             }
 
@@ -195,6 +214,7 @@ int main(int argc, char **argv)
         printf("Unknown command. Try: print N | exit\n");
     }
 
+    /* Wait for threads to complete */
     status = pthread_join(producer, NULL);
     if (status != 0) {
         fprintf(stderr, "Failed to join producer: %d\n", status);
@@ -210,13 +230,17 @@ int main(int argc, char **argv)
     return 0;
 }
 
-static int shared_state_init(shared_state_t *state, size_t buffer_size, size_t initial_fill)
+/* Initialize all shared state including ring buffer, sequencer, event counters,
+ * mutexes, and history array. Performs initial prefill if requested.
+ */
+static int shared_state_init(shared_state_t *state, size_t buffer_size, size_t initial_fill, int verbose)
 {
     if (state == NULL) {
         return EINVAL;
     }
 
     memset(state, 0, sizeof(*state));
+    state->verbose = verbose;
 
     int status = rb_init(&state->buffer, buffer_size);
     if (status != 0) {
@@ -302,6 +326,7 @@ static int shared_state_init(shared_state_t *state, size_t buffer_size, size_t i
     return 0;
 }
 
+/* Clean up and destroy all resources in shared state. */
 static void shared_state_destroy(shared_state_t *state)
 {
     if (state == NULL) {
@@ -329,6 +354,9 @@ static void shared_state_destroy(shared_state_t *state)
     state->history_size = 0;
 }
 
+/* Request threads to stop by setting the stop flag, closing the ring buffer,
+ * and advancing event counters to wake any waiting threads.
+ */
 static void request_stop(shared_state_t *state)
 {
     int status = pthread_mutex_lock(&state->state_lock);
@@ -342,13 +370,17 @@ static void request_stop(shared_state_t *state)
         fprintf(stderr, "request_stop: unlock failed: %d\n", status);
     }
 
+    /* Close ring buffer to unblock any waiting rb_put/rb_get calls */
     rb_close(&state->buffer);
+    
+    /* Advance event counters to maximum to wake any threads waiting on them */
     uint64_t produced_now = eventcnt_read(&state->produced_counter);
     eventcnt_advance(&state->produced_counter, UINT64_MAX - produced_now);
     uint64_t consumed_now = eventcnt_read(&state->consumed_counter);
     eventcnt_advance(&state->consumed_counter, UINT64_MAX - consumed_now);
 }
 
+/* Check if stop has been requested (thread-safe). */
 static int should_stop(shared_state_t *state)
 {
     int value = 0;
@@ -365,6 +397,9 @@ static int should_stop(shared_state_t *state)
     return value;
 }
 
+/* Append a consumed value to the history array. Grows the array dynamically
+ * if capacity is exceeded (thread-safe).
+ */
 static int append_history(shared_state_t *state, uint8_t value)
 {
     int status = pthread_mutex_lock(&state->history_lock);
@@ -373,6 +408,7 @@ static int append_history(shared_state_t *state, uint8_t value)
         return status;
     }
 
+    /* Grow history array if at capacity (double the size) */
     if (state->history_size == state->history_capacity) {
         size_t new_capacity = state->history_capacity == 0 ? HISTORY_INITIAL_CAPACITY : state->history_capacity * 2;
         uint8_t *resized = (uint8_t *)realloc(state->history, new_capacity);
@@ -396,6 +432,10 @@ static int append_history(shared_state_t *state, uint8_t value)
     return 0;
 }
 
+/* Producer thread: continuously generates random 8-bit values, obtains tickets
+ * from the sequencer, places values in the ring buffer, and advances the
+ * produced event counter. Only prints output when verbose mode is enabled.
+ */
 static void *producer_thread(void *arg)
 {
     shared_state_t *state = (shared_state_t *)arg;
@@ -417,13 +457,23 @@ static void *producer_thread(void *arg)
         }
 
         eventcnt_advance(&state->produced_counter, 1);
-        printf("[Producer] ticket=%" PRIu64 " value=%u\n", ticket, value);
+        
+        /* Only print producer output in verbose mode to avoid flooding stdout */
+        if (state->verbose) {
+            printf("[Producer] ticket=%" PRIu64 " value=%u\n", ticket, value);
+        }
     }
 
-    printf("[Producer] stopping.\n");
+    if (state->verbose) {
+        printf("[Producer] stopping.\n");
+    }
     return NULL;
 }
 
+/* Consumer thread: waits for produced items, retrieves values from the ring buffer,
+ * appends them to history, and advances the consumed event counter. Only prints
+ * output when verbose mode is enabled.
+ */
 static void *consumer_thread(void *arg)
 {
     shared_state_t *state = (shared_state_t *)arg;
@@ -434,6 +484,7 @@ static void *consumer_thread(void *arg)
             break;
         }
 
+        /* Wait until at least next_ticket+1 items have been produced */
         eventcnt_await(&state->produced_counter, next_ticket + 1);
 
         errno = 0;
@@ -448,11 +499,17 @@ static void *consumer_thread(void *arg)
         }
 
         eventcnt_advance(&state->consumed_counter, 1);
-    printf("[Consumer] ticket=%" PRIu64 " value=%u (total=%zu)\n",
-           next_ticket, value, state->history_size);
+        
+        /* Only print consumer output in verbose mode to avoid flooding stdout */
+        if (state->verbose) {
+            printf("[Consumer] ticket=%" PRIu64 " value=%u (total=%zu)\n",
+                   next_ticket, value, state->history_size);
+        }
         ++next_ticket;
     }
 
-    printf("[Consumer] stopping.\n");
+    if (state->verbose) {
+        printf("[Consumer] stopping.\n");
+    }
     return NULL;
 }

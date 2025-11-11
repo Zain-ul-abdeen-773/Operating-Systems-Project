@@ -32,7 +32,7 @@ static void launch_semaphore_demo(void);
 static void launch_mutex_demo(void);
 
 int main(void)
-{
+{   printf("Milestone 3 Output:\n");
     printf("=== Semaphore demo (capacity = 2) ===\n");
     launch_semaphore_demo();
 

@@ -26,6 +26,7 @@ int main(void)
     }
 
     /* Parent work after spawning the child. */
+    printf("Milestone 1 Output:\n");
     printf("Hello Parent\n");
 
     /* Wait for the child to finish before exiting main (synchronization). */

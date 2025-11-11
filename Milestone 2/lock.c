@@ -47,7 +47,7 @@ int main(void)
         pthread_mutex_destroy(&state.mutex);
         return EXIT_FAILURE;
     }
-
+    printf("Milestone 2 Output:\n");    
     printf("Parent: Enter a line to share with the child thread:\n");
     if (fgets(state.buffer, BUFFER_SIZE, stdin) == NULL) {
         /* EOF or read error: treat as no input. */
