@@ -15,6 +15,8 @@
 \definecolor{osblue}{HTML}{0A2540}
 \definecolor{osaccent}{HTML}{1F7AE0}
 \definecolor{osgray}{HTML}{F4F6F8}
+% Additional colors used in TikZ diagrams
+\definecolor{darkgreen}{rgb}{0,0.5,0}
 
 % -------------------------------
 % Graphics & Diagrams
@@ -427,7 +429,8 @@ Implement advanced synchronization primitives:
 
 \begin{figure}[H]
 \centering
-\begin{tikzpicture}[node distance=2.5cm, scale=0.9, transform shape]
+% Increased node distance to avoid overlapping nodes on tight layouts
+\begin{tikzpicture}[node distance=3.2cm, scale=0.9, transform shape]
 \tikzstyle{component} = [rectangle, rounded corners, minimum width=3cm, minimum height=1.2cm, text centered, draw=black, fill=orange!30, font=\small]
 \tikzstyle{primitive} = [rectangle, minimum width=2.5cm, minimum height=1cm, text centered, draw=black, fill=blue!20, font=\small]
 \tikzstyle{arrow} = [thick,->,>=stealth]
@@ -517,12 +520,14 @@ History size: 9
 \end{tcolorbox}
 
 \subsection{Features}
+This component supports three primary operation modes which are useful for
+testing, demonstration, and batch usage:
 \begin{itemize}[leftmargin=*]
-    \item \textbf{Interactive Mode:} Default behavior with user prompts
-    \item \textbf{Direct Print Mode (\texttt{-p N}):} Print N values and exit
-    \item \textbf{Demo Mode (\texttt{-d}):} Showcase individual primitive behaviors
-    \item \textbf{Statistics:} Track consumption metrics
-    \item \textbf{Graceful Shutdown:} Close ring buffer, wake waiting threads
+    \item \textbf{Interactive Mode:} Default behavior with user prompts; enter commands like \texttt{print N}, \texttt{stats}, and \texttt{exit}.
+    \item \textbf{Direct Print Mode (\texttt{-p N}):} Non-interactive mode that waits until \texttt{N} values are consumed then prints them and exits; useful for scripting and batch tests.
+    \item \textbf{Demo Mode (\texttt{-d}):} Runs self-contained demos of the sequencer, event counter, and ring buffer primitives to validate behavior.
+    \item \textbf{Statistics:} Track consumption metrics (produced/consumed/in-flight) via the \texttt{stats} command.
+    \item \textbf{Graceful Shutdown:} Close ring buffer and wake waiting threads to enable clean exit.
 \end{itemize}
 
 \clearpage

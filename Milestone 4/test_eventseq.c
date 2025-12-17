@@ -49,6 +49,20 @@ typedef struct state {
     int stop_requested;
 } state_t;
 
+/*
+ * state_t invariants:
+ * - `buffer` is the shared bounded queue: producers call `rb_put()` and
+ *   consumers call `rb_get()`. The ring buffer internally serializes access.
+ * - `sequencer` issues monotonically increasing tickets to order produced
+ *   elements; tickets are stored alongside history entries for traceability.
+ * - `produced_counter` and `consumed_counter` are event counters used to
+ *   notify interested threads when production/consumption progresses.
+ * - `history` arrays are protected by `history_lock` and record consumed
+ *   values and their associated tickets for later inspection/printing.
+ * - `stop_lock` serializes access to `stop_requested`; use `request_stop()`
+ *   and `should_stop()` helpers to safely set/read the flag.
+ */
+
 /* --------------------------------------------------------------------------
  *                              Utility Helpers
  * -------------------------------------------------------------------------- */
@@ -59,6 +73,9 @@ static void sleep_us(unsigned int usec) {
         .tv_sec  = usec / 1000000u,
         .tv_nsec = (long)(usec % 1000000u) * 1000L
     };
+    /* Use nanosleep in a loop to handle interrupted sleeps (EINTR). The
+     * remaining time is written back into `ts` by nanosleep when interrupted.
+     */
     while (nanosleep(&ts, &ts) == -1 && errno == EINTR);
 }
 
@@ -67,6 +84,12 @@ static void die(const char *msg, int err) {
     else     fprintf(stderr, "%s\n", msg);
     exit(EXIT_FAILURE);
 }
+
+/*
+ * `die()` is a convenience for fatal errors during initialization. In
+ * production code prefer returning error codes and performing cleanup, but
+ * for demos a short-circuit exit simplifies error handling.
+ */
 
 /* --------------------------------------------------------------------------
  *                              Demo Helpers
@@ -118,6 +141,12 @@ static void run_demo(void) {
     rb_destroy(&rb);
 }
 
+/*
+ * `run_demo()` exercises the three main primitives (sequencer, eventcnt,
+ * ringbuf) in isolation so you can validate correctness before running the
+ * integrated producer/consumer system.
+ */
+
 /* --------------------------------------------------------------------------
  *                              History Management
  * -------------------------------------------------------------------------- */
@@ -127,6 +156,9 @@ static void history_append(state_t *st, uint8_t value, uint64_t ticket) {
     if (st->history_size == st->history_capacity) {
         size_t new_cap = st->history_capacity ? st->history_capacity * 2
                                               : HISTORY_INITIAL_CAPACITY;
+        /* Resize both arrays; history stores bytes, tickets stores uint64_t.
+         * Note: error handling uses `die()` for simplicity; production code
+         * should handle allocation failures more gracefully. */
         st->history = realloc(st->history, new_cap);
         st->history_tickets = realloc(st->history_tickets, new_cap * sizeof(uint64_t));
         if (!st->history || !st->history_tickets)
@@ -139,6 +171,15 @@ static void history_append(state_t *st, uint8_t value, uint64_t ticket) {
     pthread_mutex_unlock(&st->history_lock);
 }
 
+/*
+ * Notes on history management:
+ * - `history_lock` must be held when accessing `history` arrays to
+ *   prevent races between the consumer appending and the main thread
+ *   printing values.
+ * - The ticket associated with each value preserves ordering assigned by the
+ *   `sequencer` and is useful for debugging and validation.
+ */
+
 /* --------------------------------------------------------------------------
  *                              Stop Control
  * -------------------------------------------------------------------------- */
@@ -149,6 +190,12 @@ static void request_stop(state_t *st) {
     pthread_mutex_unlock(&st->stop_lock);
 
     rb_close(&st->buffer);
+    /*
+     * To ensure all waiters are unblocked, advance event counters by a large
+     * delta (difference to UINT64_MAX). This effectively wakes any threads
+     * waiting on `eventcnt_await` without requiring knowledge of current
+     * values. `rb_close()` also unblocks ring-buffer waiters.
+     */
     eventcnt_advance(&st->produced_counter, UINT64_MAX - eventcnt_read(&st->produced_counter));
     eventcnt_advance(&st->consumed_counter, UINT64_MAX - eventcnt_read(&st->consumed_counter));
 }
@@ -159,6 +206,13 @@ static int should_stop(state_t *st) {
     pthread_mutex_unlock(&st->stop_lock);
     return v;
 }
+
+/*
+ * `request_stop()` and `should_stop()` provide a thread-safe stop protocol
+ * used by both producer and consumer loops to check for shutdown. The stop
+ * request is coarse-grained (single flag) because more complex coordinated
+ * shutdown isn't required for this demo.
+ */
 
 /* --------------------------------------------------------------------------
  *                              Threads
@@ -179,6 +233,15 @@ static void *producer_thread(void *arg) {
     return NULL;
 }
 
+/*
+ * Producer loop summary:
+ * 1) read a random byte (may block or fail briefly) 2) get a ticket from
+ *    the sequencer (ordering) 3) put the value into the ring buffer 4)
+ *    advance the produced counter to notify consumers.
+ * The order of operations matters: the ticket should be acquired before
+ * publishing the value to ensure tickets correlate with buffer positions.
+ */
+
 static void *consumer_thread(void *arg) {
     state_t *st = arg;
     uint64_t next_ticket = 0;
@@ -194,6 +257,15 @@ static void *consumer_thread(void *arg) {
     return NULL;
 }
 
+/*
+ * Consumer loop summary:
+ * - Wait until `produced_counter >= next_ticket+1` meaning the producer has
+ *   published (or prefilled) the required item. `eventcnt_await()` may block
+ *   until the condition is true. - Then `rb_get()` retrieves the value (may
+ *   block if buffer empty) and the consumer records it in history. - The
+ *   consumed counter is advanced to inform any print/waiting logic.
+ */
+
 /* --------------------------------------------------------------------------
  *                              Initialization / Cleanup
  * -------------------------------------------------------------------------- */
@@ -208,6 +280,12 @@ static void state_destroy(state_t *st) {
     free(st->history);
     free(st->history_tickets);
 }
+
+/*
+ * Cleanup notes: all primitives are destroyed in the reverse order from
+ * initialization to avoid use-after-free during teardown. The ring buffer
+ * and event counters must be destroyed after threads have joined.
+ */
 
 static void state_init(state_t *st, size_t buf_size, size_t prefill) {
     memset(st, 0, sizeof(*st));
@@ -227,6 +305,13 @@ static void state_init(state_t *st, size_t buf_size, size_t prefill) {
         eventcnt_advance(&st->produced_counter, 1);
     }
 }
+
+/*
+ * Initialization notes:
+ * - `state_init()` creates all primitives and prepares optional prefill
+ *   values; prefill follows the same code path as live production so tests
+ *   exercise the full synchronization stack.
+ */
 
 /* --------------------------------------------------------------------------
  *                              Main / CLI
